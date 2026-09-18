@@ -1,0 +1,31 @@
+services:
+  # Joins the Octelium mesh as the cw-postgres-mcp WORKLOAD identity.
+  # --serve=cw-postgres-mcp: makes the cw-postgres-mcp Service (this identity's
+  # assigned Service, which Janus's registered Proxy URL routes to) reachable
+  # by other Octelium users (the gateway) — same pattern as the chicken-pie
+  # device. Outbound access to Services this identity is authorized for
+  # (cw-postgres, via the cw-data-readers group) is automatic once connected,
+  # no extra flag. Per Ivan (Teams, 2026-09-16): same OCTELIUM_AUTH_TOKEN as
+  # before, no hot-add support in Octelium so the session must be recreated
+  # (not just reconfigured) whenever this flag changes.
+  octelium-connect:
+    image: ghcr.io/octelium/octelium
+    command: >
+      connect --domain ${OCTELIUM_DOMAIN} --auth-token ${OCTELIUM_AUTH_TOKEN} --serve=cw-postgres-mcp
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    ports:
+      - "${POSTGRES_MCP_PORT}:8000" # postgres-mcp listens here, in the shared netns
+    restart: unless-stopped
+
+  postgres-mcp:
+    image: crystaldba/postgres-mcp
+    command: ["--access-mode=restricted", "--transport=sse"]
+    environment:
+      DATABASE_URI: ${OCTELIUM_CW_POSTGRES_URL}
+    network_mode: "service:octelium-connect"
+    depends_on:
+      - octelium-connect
+    restart: unless-stopped

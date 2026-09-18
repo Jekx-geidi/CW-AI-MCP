@@ -1,0 +1,76 @@
+
+5. Modules
+Program Governance & Coordination — Nicko
+Enterprise Discovery — Angel (model), whole team (current detailed phase)
+Business Outcomes & Capability Map — Nicko
+Geidi-MCP Architecture — ChrisJane (day-to-day), Nicko/Wayne/Paul decide
+Trinity / Omega / Registry Alignment — Wayne
+Administrative & Commercial AI — Nicko
+MSP & Technical Operations AI — Junrey (on return)
+Integration & Capability Delivery — populated after the discovery exit review
+AI Workforce / Agent Operations — Kristel
+Internal Deployment → Customer Productisation — Paul (sponsor)
+6. AI-access classification taxonomy (Wayne refines in G-04; use this list until then)
+Existing MCP — usable
+Existing MCP — needs improvement
+Existing API sufficient
+New MCP warranted
+Shared/domain MCP should expose this capability
+Direct read-only DB access appropriate
+Event/webhook integration appropriate
+Existing internal service should be reused
+Human-mediated initially
+Should NOT be directly exposed to AI
+Legacy / candidate for retirement
+Duplicate / rationalisation candidate
+Unknown — investigation required
+7. Where facts live (to be confirmed by G-04)
+System/workload existence and owner → Registry (geidi.yaml manifests, projects/services)
+Terms, concepts, what they touch → Omega geidi tenant (a tenant is a product, not a project)
+Application/data/integration/topology model → Angel's ArchiMate model (Foundry repo)
+Work status, evidence, decisions in flight → Plane (this project)
+Architecture decisions → ADRs in agent-governance/decisions, linked from here
+Security and authority constraints → constraints register (destination decided in G-04)
+8. Seed system inventory (incomplete; discovery is expected to find more)
+SharePoint current and legacy (Suz knows legacy) · Microsoft Teams · Microsoft 365 / Exchange / email · Microsoft Graph · Power Platform (Power Automate flows, Power Apps, Dataverse, connectors) · ConnectWise Manage and its database (plus the ConnectWise AI data platform replica) · IT Glue · CRM (Twenty CRM, Postgres-backed; MSCRM 2011 being retired) · IT Service Portal (Junrey) · Xero (five MCP servers exist) · IT Quoter (API and internal MCP) · Sprout · payroll systems · PhilHealth · SSS · Pag-IBIG · BIR · other PH HR/government systems · Bitwarden · LabTech/Automate (labtech-mcp exists) · Zabbix and monitoring · infrastructure platforms (VMware/GreenCloud Malaga, Azure edge, GCP, k3s, Octelium/Authentik access platform) · GitLab (Foundry, 98 repos, 6 manifests; existing repos geidi-mcp-servers and geidi-mcp-config) · cloud platforms · internal software · internal AI systems (EDA, RecurryBot, Tank, Agora, LiteLLM/Langfuse, book-scholar, FancyBacklog, lead-machine) · Trinity systems (Omega, Registry, Endgame) · databases and data stores with no obvious front end.
+9. Related Plane projects (linked, not duplicated)
+EDA-Rollout (EDAROLLOUT) and EDA — Email Dispatch Automation (EDA) — sibling
+Recurry-Rollout (RECURRYROL), Recurring System v2 (RRR), Finance Recurring (FR), CSC Recurring Tasks — sibling
+Agent Governance (AGENTGOV) — owns the MCP Gateway Registry deployment and its bugs
+MCP Onboarding / LastMCP (LASTMCP) — onboarding people and MCP servers onto the gateway; Sales zone; Xero servers
+Labtech MCP (LABTECH), IT-Quoter MCP Rollout (ITQUOTERMC) — existing capability delivery
+Trinity (TRINY), Trinity Semantic Seams (TSS), Omega (OMEGA), Endgame (ENDGAME), Geidi Knowledge Changes digest (GKCD)
+Geidi AI-Native Access Platform (FANCYNET) — Octelium/Authentik, Ivan
+MSCRM 2011 Retirement (MSCRM), IT Portal Alert, Backup-Service-Agent, Domain Monitoring, A2A Agent Cards, LiteLLM, LangFuse, tank
+Groundwork (CHARTHALL) and the msp/geidi-discovery pack — Paul's earlier solo discovery attempt; comparison artefact only
+10. Discovery completion criteria (verified at the exit review, G-07)
+Every major Geidi team has been consulted.
+Major applications and platforms are identified.
+Important databases/data stores are identified.
+Major integrations and data flows are represented.
+System/business ownership is recorded.
+Angel's ArchiMate model is materially current.
+Major information objects/domains are identifiable.
+Each important system has an initial AI-access classification.
+Existing MCPs/APIs are identified.
+Security/sensitivity constraints are captured.
+Known duplicates/legacy systems are flagged.
+Important unknowns have explicit follow-up tickets.
+Major business outcomes/capabilities have been lightly mapped.
+High-value AI opportunities have been ranked.
+Candidate MCP/capability boundaries have been proposed.
+Trinity/Omega/Registry implications have been reviewed.
+EDA/RecurryBot lessons and further rollout candidates have been captured.
+The next implementation wave can be chosen from evidence rather than guesswork.
+11. Working culture and agent reporting
+Assume the team is capable. Give people outcomes, not micromanagement. Use local agents heavily: they read Plane tasks, do authorised work, update Plane regularly, attach evidence, surface blockers, create follow-up tickets. Never "working on it". Prefer evidence: architecture updated, system queried, API tested, repository identified, owner confirmed, stakeholder interviewed, data flow verified, MCP tool demonstrated, capability operating on the wire. If something is claimed to work, verify it. (ChrisJane publishes the detailed reporting convention here under ticket G-03.)
+12. Sections to be added by ticket owners
+System-record intake template (Angel, D-02)
+Classification taxonomy final wording and destinations (Wayne, G-04)
+Agent reporting convention (ChrisJane, G-03)
+ADR links (Nicko, G-05)
+Plant-Hopper views (Angel, D-03)
+EDA and RecurryBot learnings (Kristel, K-01, K-02)
+Outcome records (Kristel, Adriane, Gina; B-01..B-03)
+Ranked opportunities (Nicko, P-01)
+Reusable-pattern log (Kristel, P-02)
