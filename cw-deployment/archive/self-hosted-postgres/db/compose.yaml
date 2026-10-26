@@ -1,0 +1,161 @@
+# CW PostgreSQL — Stage 2 target on gc-gei-ollama. PREPARED, NOT DEPLOYED.
+#
+# Do not start this until MIGRATION.md §2 (discovery) and §3 (storage) gates
+# are green. Design decisions and reasoning: MIGRATION.md §4.
+#
+# - postgres:17.11, the exact build the source runs (17.11-1.pgdg13+2, Debian 13),
+#   pinned by digest. Same major + same build = plain pg_dump/pg_restore, no upgrade.
+# - Data lives on a DEDICATED disk mounted at ${CW_PG_ROOT} (not /var/lib/docker,
+#   which is 90% full). Exposed as a named volume backed by that path.
+# - No host port. Consumers reach it through the Octelium Service "cw-postgres",
+#   served by the sidecar below (same pattern as the MCP).
+# - Settings start at parity with the source (measured 2026-10-19), plus data
+#   checksums and WAL guardrails.
+
+name: cw-db
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  cw-postgres:
+    image: postgres:17.11@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+    container_name: cw-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/cw_pg_superuser_password
+      # Source was initialised WITHOUT checksums; the new cluster gets them
+      # (corruption detection; small CPU cost). Locale/encoding match source.
+      POSTGRES_INITDB_ARGS: "--data-checksums --encoding=UTF8 --locale=en_US.utf8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    secrets:
+      - cw_pg_superuser_password
+    command:
+      - postgres
+      # --- parity with source (pg_settings, 2026-10-19) ---
+      - -c
+      - max_connections=40
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - password_encryption=scram-sha-256
+      # Source runs wal_level=logical (likely for planned CDC off the mirror,
+      # CW-RET-02). Kept for parity; capped so an abandoned slot can never
+      # fill the disk.
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_slot_wal_keep_size=8GB
+      # --- WAL / checkpoints: bounded disk use ---
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - checkpoint_completion_target=0.9
+      # --- observability ---
+      - -c
+      - log_min_duration_statement=5000
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_lock_waits=on
+      - -c
+      - idle_in_transaction_session_timeout=15min
+      - -c
+      - listen_addresses=*
+    volumes:
+      - cw-pg-data:/var/lib/postgresql/data
+      - ${CW_PG_ROOT:?set CW_PG_ROOT in .env}/dumps:/dumps
+    shm_size: 1g
+    networks:
+      - cw-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -q"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    stop_grace_period: 2m
+    restart: unless-stopped
+    logging: *default-logging
+    # Sized for a host with ~14 GiB available RAM and full swap:
+    # shared_buffers 1 GiB + 40 x work_mem + maintenance + OS cache headroom.
+    memswap_limit: 6G
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 6G
+
+  # Serves the Octelium Service "cw-postgres" from this host, so the existing
+  # hostname cw-postgres.default.local.access.geidi.com keeps working for every
+  # consumer (MCP, PostgREST, loader if remote). Requires Ivan to assign that
+  # Service to a WORKLOAD identity and repoint it at cutover — see MIGRATION.md.
+  octelium-connect:
+    image: ghcr.io/octelium/octelium@sha256:a40ecd279ca4f4b5a0771722b55c723760f69d8b6ca256e9f8623e6ca61d3eb5 # 0.42.0
+    container_name: cw-db-octelium
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        OCTELIUM_AUTH_TOKEN="$$(cat /run/secrets/octelium_db_auth_token)"
+        && export OCTELIUM_AUTH_TOKEN
+        && exec /usr/bin/octelium connect --serve "$${CW_DB_OCTELIUM_SERVICE}"
+    environment:
+      OCTELIUM_DOMAIN: ${OCTELIUM_DOMAIN:?set OCTELIUM_DOMAIN in .env}
+      CW_DB_OCTELIUM_SERVICE: ${CW_DB_OCTELIUM_SERVICE:-cw-postgres}
+    secrets:
+      - octelium_db_auth_token
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - cw-db
+    profiles:
+      - serve # started only at cutover: docker compose --profile serve up -d
+    restart: unless-stopped
+    logging: *default-logging
+    memswap_limit: 256M
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+secrets:
+  cw_pg_superuser_password:
+    file: ./secrets/cw_pg_superuser_password
+  octelium_db_auth_token:
+    file: ./secrets/octelium_db_auth_token
+
+volumes:
+  cw-pg-data:
+    name: cw-pg-data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CW_PG_ROOT:?set CW_PG_ROOT in .env}/data
+
+networks:
+  cw-db:
+    name: cw-db-net
+    driver: bridge

@@ -25,10 +25,10 @@ Reviewed inventory rows; working KB configuration.
 - [ ] Record actual progress below and update the register; incomplete work stays incomplete.
 - [ ] If blocked, record owner/next action and move to an unblocked task in the roadmap.
 
-Actual result: Pending execution.
+Actual result (as of ~10AM): Wala nabuhat ang D-13/D-14/D-16 karong buntag; ang oras naadto sa KB-02 gate 4. Docker Desktop na-restart (patay ganina), Outline nagdagan na. Na-test ang duha ka Entra login: generic OIDC napakyas (walay `email_verified` gikan sa Entra); built-in Microsoft login na-block sa AADSTS50011 (redirect URI). Outline mismo OK (email/Mailhog login).
 
-Evidence: ?
+Evidence: Outline logs (`Your email address has not been verified by Geidi Entra`), Microsoft error AADSTS50011 screenshot, `TICKETS OVERVIEW/KB/KB #02 - INPROGR.md` update.
 
-Blocker / owner / next action: ?
+Blocker / owner / next action: Ivan: i-add ang `http://localhost:3100/auth/azure.callback` (message draft gihatag kang Riel para i-send). Nicko: KB-00 (GEIDIMCP-75) nag-block sa final GO ug KB-05.
 
-Carry-over and effect on target date: ?
+Carry-over and effect on target date: KB-05 implementation (karong adlawa nga plano) dili pa masugdan, naghulat sa KB-02 + KB-00. D-13/D-14/D-16 validation carry-over.

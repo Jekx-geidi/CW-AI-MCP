@@ -1,0 +1,98 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: outline
+      POSTGRES_PASSWORD: outline
+      POSTGRES_DB: outline
+    volumes:
+      - outline-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  # Local fake-SMTP catcher so we can sign in via email magic-link without a
+  # real mail account or waiting on Ivan's OIDC registration (gate 4 only).
+  # Web UI at http://localhost:8025 shows every "sent" email.
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"
+    restart: unless-stopped
+
+  # Captures webhook deliveries for gate 1 verification — logs each payload to
+  # stdout instead of relying on an external site.
+  webhook-receiver:
+    image: python:3.12-alpine
+    volumes:
+      - ./webhook-receiver.py:/receiver.py:ro
+    command: ["python", "/receiver.py"]
+    restart: unless-stopped
+
+  # KB-01 tracer bullet: the search index Outline's own content never touches.
+  # Separate from Outline's internal DB on purpose — this is what the KB-01
+  # export job writes into and what the search_knowledge/get_document MCP
+  # tools read from.
+  kb-index-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: kb
+      POSTGRES_PASSWORD: kb
+      POSTGRES_DB: kb
+    volumes:
+      - kb-index-data:/var/lib/postgresql/data
+      - ./kb-01-tracer/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+
+  # KB-01 export job: listens for Outline's publish webhook, exports to
+  # Markdown, generates frontmatter, commits to GitLab, and indexes into
+  # kb-index-postgres (tsvector + a placeholder pgvector embedding — a real
+  # embedding model choice is deferred to KB-06, out of scope for the tracer).
+  kb-01-export-job:
+    image: python:3.12-alpine
+    volumes:
+      - ./kb-01-tracer:/app:ro
+    working_dir: /app
+    command: ["sh", "-c", "pip install --quiet psycopg2-binary requests && python export_job.py"]
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OUTLINE_URL: http://outline:3000
+      OUTLINE_API_KEY: ${OUTLINE_API_KEY}
+      KB_DB_URL: postgresql://kb:kb@kb-index-postgres:5432/kb
+      GITLAB_TOKEN: ${GITLAB_TOKEN}
+      GITLAB_PROJECT: pure-interns-projects/reil-jake-engana/kb-01-tracer-export
+    ports:
+      - "9100:9100"
+    depends_on:
+      - kb-index-postgres
+      - outline
+    restart: unless-stopped
+
+  outline:
+    image: docker.getoutline.com/outlinewiki/outline:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://outline:outline@postgres:5432/outline
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM_EMAIL: outline@kb-02-spike.local
+      SMTP_SECURE: "false"
+    ports:
+      - "3100:3000"
+    volumes:
+      - outline-data:/var/lib/outline/data
+    depends_on:
+      - postgres
+      - redis
+      - mailhog
+    restart: unless-stopped
+
+volumes:
+  outline-postgres-data:
+  outline-data:
+  kb-index-data:

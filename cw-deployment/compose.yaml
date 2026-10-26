@@ -1,0 +1,112 @@
+# CW MCP — Stage 1 deployment for gc-gei-ollama.
+#
+# Same two-container design as the laptop stack (../docker-compose.yml),
+# hardened for a shared server:
+#   - images pinned to the digests tested on the laptop (2026-10-19)
+#   - NO host ports published; Janus reaches postgres-mcp through the
+#     Octelium Service "cw-postgres-mcp" (--serve), never a host port
+#   - Octelium auth token read from a secret file at start-up and passed
+#     via the process environment, so it never appears in `docker inspect`,
+#     the container command line, or host `ps` output
+#   - unique project/container/network names (cw-mcp*) so nothing collides
+#     with other workloads on the server
+#
+# The database is NOT part of Stage 1: postgres-mcp keeps using the existing
+# live cw-postgres mirror through Octelium. See MIGRATION.md for Stage 2.
+
+name: cw-mcp
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # Joins the Octelium mesh as the cw-postgres-mcp WORKLOAD identity and
+  # serves the cw-postgres-mcp Service (what Janus's Proxy URL routes to).
+  # Outbound access to cw-postgres comes from the identity's group
+  # membership (cw-data-readers).
+  octelium-connect:
+    image: ghcr.io/octelium/octelium@sha256:a40ecd279ca4f4b5a0771722b55c723760f69d8b6ca256e9f8623e6ca61d3eb5 # 0.42.0
+    container_name: cw-mcp-octelium
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        OCTELIUM_AUTH_TOKEN="$$(cat /run/secrets/octelium_auth_token)"
+        && export OCTELIUM_AUTH_TOKEN
+        && exec /usr/bin/octelium connect --serve "$${CW_MCP_OCTELIUM_SERVICE}"
+    environment:
+      OCTELIUM_DOMAIN: ${OCTELIUM_DOMAIN:?set OCTELIUM_DOMAIN in .env}
+      CW_MCP_OCTELIUM_SERVICE: ${CW_MCP_OCTELIUM_SERVICE:-cw-postgres-mcp}
+    secrets:
+      - octelium_auth_token
+    # Needed for the WireGuard/TUN tunnel inside this container's own network
+    # namespace. It does not change host networking.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - cw-mcp
+    restart: unless-stopped
+    logging: *default-logging
+    # Measured on the laptop stack (2026-10-19): ~29 MiB, <0.1% CPU, 12 PIDs.
+    # Limit = ~9x measured. memswap_limit = memory limit: never swap
+    # (gc-gei-ollama's swap is already nearly full).
+    memswap_limit: 256M
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+
+  # Generic read-only Postgres MCP (crystaldba/postgres-mcp 1.6.0), SSE on
+  # :8000 inside the shared network namespace. Restricted mode = read-only
+  # transactions + query validation; the cw_agent role enforces read-only,
+  # 60s timeout and a 10-connection cap on the database side as well.
+  postgres-mcp:
+    image: crystaldba/postgres-mcp@sha256:dbbd346860d29f1543e991f30f3284bf4ab5f096d049ecc3426528f20b1b6e6b # 1.6.0
+    container_name: cw-mcp-server
+    command: ["--access-mode=restricted", "--transport=sse", "--sse-host=0.0.0.0", "--sse-port=8000"]
+    environment:
+      # Secretless: Octelium injects the real cw_agent credential upstream.
+      DATABASE_URI: ${CW_POSTGRES_URL:?set CW_POSTGRES_URL in .env}
+    network_mode: "service:octelium-connect"
+    depends_on:
+      - octelium-connect
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    # Measured: ~113 MiB idle, ~115 MiB with 3 parallel sessions, <7% CPU,
+    # 4 PIDs. Limit = ~4.5x measured; no swap.
+    memswap_limit: 512M
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 256
+
+secrets:
+  octelium_auth_token:
+    file: ./secrets/octelium_auth_token
+
+networks:
+  cw-mcp:
+    name: cw-mcp-net
+    driver: bridge
