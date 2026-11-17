@@ -80,6 +80,36 @@ class TestCheckSingleStatement:
             server.check_single_statement("  ;  ")
 
 
+class TestTransportSecurity:
+    """The SSE app accepts proxied Host headers on a non-loopback bind (Octelium)."""
+
+    @staticmethod
+    def _status(bind_host, request_host, monkeypatch, allowed=None):
+        from starlette.testclient import TestClient
+
+        if allowed is None:
+            monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+        else:
+            monkeypatch.setenv("MCP_ALLOWED_HOSTS", allowed)
+        monkeypatch.setattr(server.mcp.settings, "host", bind_host)
+        monkeypatch.setattr(server.mcp.settings, "transport_security", server.transport_security_for(bind_host))
+        client = TestClient(server.mcp.sse_app())
+        # No session id: 400 means the Host check passed, 421 means it was rejected.
+        return client.post("/messages/", headers={"Host": request_host}, json={}).status_code
+
+    def test_proxied_host_accepted_on_any_interface(self, monkeypatch):
+        assert self._status("0.0.0.0", "cw-postgres-mcp.access.geidi.com", monkeypatch) == 400
+
+    def test_loopback_bind_still_rejects_foreign_host(self, monkeypatch):
+        assert self._status("127.0.0.1", "evil.example.com", monkeypatch) == 421
+        assert self._status("127.0.0.1", "localhost:8000", monkeypatch) == 400
+
+    def test_allowed_hosts_list_is_enforced(self, monkeypatch):
+        allowed = "cw-postgres-mcp.access.geidi.com"
+        assert self._status("0.0.0.0", "cw-postgres-mcp.access.geidi.com", monkeypatch, allowed) == 400
+        assert self._status("0.0.0.0", "evil.example.com", monkeypatch, allowed) == 421
+
+
 integration = pytest.mark.skipif(not os.getenv("RPT_TEST_DSN"), reason="RPT_TEST_DSN not set")
 
 

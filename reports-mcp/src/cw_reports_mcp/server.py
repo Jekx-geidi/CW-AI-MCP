@@ -7,6 +7,9 @@ no report covers, so routine questions never re-scan the mirror.
 Configuration (environment):
     DATABASE_URI           Postgres connection string (cw_agent, read-only)
     MCP_HOST / MCP_PORT    SSE bind address (default 127.0.0.1:8000)
+    MCP_ALLOWED_HOSTS      Optional comma-separated Host headers to accept on a
+                           non-loopback bind (default: accept any; see
+                           transport_security_for)
     STATEMENT_TIMEOUT_MS   Per-query timeout (default 30000)
     CONNECT_TIMEOUT_S      Connection timeout (default 10)
     MAX_ROWS               Rows returned per call (default 500)
@@ -24,6 +27,7 @@ from typing import Any
 import anyio
 import psycopg
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from psycopg import sql
 from psycopg.rows import dict_row
 
@@ -34,6 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_HOST: str = "127.0.0.1"
+LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
 DEFAULT_PORT: int = 8000
 DEFAULT_TIMEOUT_MS: int = 30000
 DEFAULT_CONNECT_TIMEOUT_S: int = 10
@@ -294,6 +299,28 @@ async def query_cw(query: str) -> dict[str, Any]:
     return await anyio.to_thread.run_sync(_query_cw_sync, statement)
 
 
+def transport_security_for(host: str) -> TransportSecuritySettings:
+    """Host-header checks to match the bind address.
+
+    FastMCP turns on DNS-rebinding protection for localhost only when the
+    server is created, and changing settings.host afterwards does not undo it.
+    Behind Octelium the Host header is the proxied service name, so on a
+    non-loopback bind the check would reject every request with 421. There,
+    accept the hosts listed in MCP_ALLOWED_HOSTS (comma-separated), or any
+    host when it is unset: Octelium authenticates every request and the
+    container publishes no ports."""
+    if host in LOOPBACK_HOSTS:
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        )
+    allowed = [h.strip() for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    if allowed:
+        return TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=allowed)
+    return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reports-first ConnectWise MCP server (SSE)")
     parser.add_argument("--host", default=os.getenv("MCP_HOST", DEFAULT_HOST))
@@ -302,6 +329,7 @@ def main() -> None:
     _get_dsn()
     mcp.settings.host = args.host
     mcp.settings.port = args.port
+    mcp.settings.transport_security = transport_security_for(args.host)
     logger.info("Starting cw-reports MCP on %s:%s (SSE)", args.host, args.port)
     mcp.run(transport="sse")
 
