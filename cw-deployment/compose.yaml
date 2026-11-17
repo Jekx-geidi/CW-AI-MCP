@@ -102,6 +102,49 @@ services:
           memory: 512M
           pids: 256
 
+  # Reports-first MCP (../reports-mcp). Serves the pre-built rpt reports and
+  # falls back to raw read-only SQL only when no report fits. Opt-in profile
+  # until the rpt schema exists on the database:
+  #   docker compose --profile reports up -d --build reports-mcp
+  # Listens on :8001 in the shared namespace. To make it the endpoint agents
+  # use, point the Octelium Service at port 8001 (Ivan) or swap the ports
+  # with postgres-mcp; see ../reports/README.md "Make the reports come first".
+  reports-mcp:
+    profiles: ["reports"]
+    build: ../reports-mcp
+    image: cw-reports-mcp:0.1.0
+    container_name: cw-mcp-reports
+    command: ["cw-reports-mcp", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      DATABASE_URI: ${CW_POSTGRES_URL:?set CW_POSTGRES_URL in .env}
+      STATEMENT_TIMEOUT_MS: "30000"
+      MAX_ROWS: "500"
+    network_mode: "service:octelium-connect"
+    depends_on:
+      - octelium-connect
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8001), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+    memswap_limit: 256M
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+          pids: 128
+
 secrets:
   octelium_auth_token:
     file: ./secrets/octelium_auth_token
